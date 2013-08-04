@@ -23,9 +23,9 @@ if (defined('SAFE') && SAFE === true) {
 class Reports_OrderTotal {
 
     // 週の基準になる日
-    private $weeklyBaseDay = 5;
+    private $weeklyBaseDay = 1;
     // 月締めの基準となる頭
-    private $monthlyHeadDay = 2;
+    private $monthlyHeadDay = 5;
     // 毎日メールの送信先
     private $dailyMailTo = 'yangsin_kim@lockon.co.jp';
     // 週間メールの送信先
@@ -44,6 +44,11 @@ class Reports_OrderTotal {
         5 => 'Friday',
         6 => 'Saturday'
     );
+    // 売上とみなさない受注ステータス
+    private $order_status = '1,3,7';
+    // 未入金の受注ステータス
+    private $unPaid_status = '4';
+
 
     // }}}
     // {{{ functions
@@ -81,10 +86,9 @@ class Reports_OrderTotal {
         // 現在の未入金一覧
         $arrTotal['unPaidOrder'] = $this->checkUnpaidOrder();
 
-
         // メールの送信
         $this->sendReportsMail($arrTotal);
-        //var_dump($arrTotal);
+        var_dump($arrTotal);
 
     }
 
@@ -127,20 +131,54 @@ class Reports_OrderTotal {
         // 今週の初めを求める
         $lastBaseDayStr = 'last ' . $this->arrWeekDays[$this->weeklyBaseDay];
         $startDay = date('Y-m-d',strtotime($lastBaseDayStr));
+        $arrWeekTotal = $this->getOrderTotal($startDay, $endDate);
 
-        //        $this->objDate->
-
+        return $arrWeekTotal;
     }
 
     function calThisMonthTotal()
     {
-    // 今月の売上金額集計
+        $endDate = $this->objDate->format('Y-m-d');
+        if ( $this->objDate->format('j') > $this->monthlyHeadDay ) {
+            $startDate = $this->objDate->format('Y-m-' . str_pad($this->monthlyHeadDay, 2, '0', STR_PAD_LEFT));
+        } else {
+            $objStartDate = new DateTime( $endDate . '-1month');
+            $startDate = $objStartDate->format('Y-m-' . str_pad($this->monthlyHeadDay, 2, '0', STR_PAD_LEFT));
+        }
 
+        $arrMonthTotal= $this->getOrderTotal($startDate, $endDate);
+
+        return $arrMonthTotal;
     }
 
     function checkUnpaidOrder()
     {
-    // 現在の未入金一覧
+        $col =<<<EOF
+            A.order_id, A.order_name01, A.order_name02,
+            CASE WHEN C.partner_id <> 303 AND B.product_type_id = 5 THEN '他社有料プラグイン'
+                ELSE 'EC-CUBE' END AS bumon,
+            CASE WHEN A.payment_id = 3 THEN 'zeus'
+        			WHEN A.payment_id = 2 THEN '銀行振込'
+		        	WHEN A.payment_id = 5 THEN 'GMO-Credit'
+                ELSE '' END AS shiharai,
+            A.total, to_char(A.create_date, 'YYYY-MM-DD') as sales_date,
+            B.product_name
+EOF;
+        $table = <<<EOF
+            dtb_order AS A  INNER JOIN dtb_order_detail  AS B USING(order_id)
+               INNER JOIN dtb_products AS C USING (product_id)
+EOF;
+        $where = "A.del_flg = 0 AND B.price > 0 AND A.status IN ( ? )";
+
+        $order = "sales_date, C.sub_comment4, B.product_code, A.create_date";
+
+        $arrWhereVal = array($this->unPaid_status);
+        $objQuery = SC_Query_Ex::getSingletonInstance();
+        $objQuery->setOrder($order);
+        $arrRet = $objQuery->select($col, $table, $where, $arrWhereVal);
+
+        // 指定範囲の売上の明細
+        return $arrRet;
 
     }
 
@@ -150,6 +188,26 @@ class Reports_OrderTotal {
     {
         //メールでレポートを送る
         return 'sendmail';
+    }
+
+    function getOrderTotal($startDate, $endDate)
+    {
+        $col = 'SUM(A.total)';
+        $table = <<<EOF
+            dtb_order AS A  INNER JOIN dtb_order_detail  AS B USING(order_id)
+               INNER JOIN dtb_products AS C USING (product_id)
+EOF;
+        $where = "A.payment_date between ? AND ? AND A.del_flg = 0 AND B.price > 0 AND A.status NOT IN ( 1, 3, 7 )";
+
+        //  --　決済処理中、無料購入、キャンセルを除く
+        $arrWhereVal = array($startDate, $endDate);
+        $objQuery = SC_Query_Ex::getSingletonInstance();
+        $objQuery->setOrder($order);
+        $arrRet = $objQuery->select($col, $table, $where, $arrWhereVal);
+
+        // 指定範囲の売上の明細
+        return $arrRet;
+
     }
 
     function getOrderTotalDetail($startDate, $endDate)
@@ -170,13 +228,12 @@ EOF;
             dtb_order AS A  INNER JOIN dtb_order_detail  AS B USING(order_id)
                INNER JOIN dtb_products AS C USING (product_id)
 EOF;
-         $where = "A.payment_date between ? AND ? AND A.del_flg = 0 AND B.price > 0 AND A.status NOT IN ( 1,3,7 )";
+         $where = "A.payment_date between ? AND ? AND A.del_flg = 0 AND B.price > 0 AND A.status NOT IN ( 1, 3, 7 )";
 
          $order = "payment_date,sales_date, C.sub_comment4, B.product_code, A.create_date";
 
         //  --　決済処理中、無料購入、キャンセルを除く
-        $status = '1, 3, 7';
-        $arrWhereVal = array($startDate, $endDate, $status);
+        $arrWhereVal = array($startDate, $endDate);
         $objQuery = SC_Query_Ex::getSingletonInstance();
         $objQuery->setOrder($order);
         $arrRet = $objQuery->select($col, $table, $where, $arrWhereVal);
