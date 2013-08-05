@@ -25,7 +25,7 @@ class Reports_OrderTotal {
     // 週の基準になる日
     private $weeklyBaseDay = 1;
     // 月締めの基準となる頭
-    private $monthlyHeadDay = 5;
+    private $monthlyHeadDay = 1;
     // 毎日メールの送信先
     private $dailyMailTo = 'yangsin_kim@lockon.co.jp';
     // 週間メールの送信先
@@ -48,6 +48,10 @@ class Reports_OrderTotal {
     private $order_status = '1,3,7';
     // 未入金の受注ステータス
     private $unPaid_status = '4';
+    // 集計日
+    private $today = '';
+    // メールテンプレート
+    private $mail_template = 'batch/reports/order_total.tpl';
 
 
     // }}}
@@ -65,30 +69,34 @@ class Reports_OrderTotal {
     function execute()
     {
 
+        $this->today = $this->objDate->format('Y-m-d');
+        $mailto = $this->dailyMailTo;
         //締め日なのか確認して月間の売上をだすか確認
         if ($this->objDate->format('j') == $this->monthlyHeadDay ) {
-            $arrTotal['monthly'] = $this->calMonthlyOrderTotal();
+            $this->arrTotal['monthly'] = $this->calMonthlyOrderTotal();
+            $mailto = $this->monthlyMailTo;
         }
         // 週の基準日か確認して週間の売上をだすか確認
         if ($this->objDate->format('N') == $this->weeklyBaseDay ) {
-            $arrTotal['weekly'] = $this->calWeeklyOrderTotal();
+            $this->arrTotal['weekly'] = $this->calWeeklyOrderTotal();
+            $mailto = $this->weeklyMailTo;
         }
 
         // 前日の売上の明細を取得
-        $arrTotal['Daily'] = $this->calDailyOrderTotal();
+        $this->arrTotal['Daily'] = $this->calDailyOrderTotal();
 
         // 今週の売上金額集計
-        $arrTotal['thisWeekTotal'] = $this->calThisWeekTotal();
+        $this->arrTotal['thisWeekTotal'] = $this->calThisWeekTotal();
 
         // 今月の売上金額集計
-        $arrTotal['thisMonthTotal'] = $this->calThisMonthTotal();
+        $this->arrTotal['thisMonthTotal'] = $this->calThisMonthTotal();
 
         // 現在の未入金一覧
-        $arrTotal['unPaidOrder'] = $this->checkUnpaidOrder();
+        $this->arrTotal['unPaidOrder'] = $this->checkUnpaidOrder();
 
         // メールの送信
-        $this->sendReportsMail($arrTotal);
-        var_dump($arrTotal);
+        $this->sendReportsMail($mailto);
+        var_dump($this->arrTotal);
 
     }
 
@@ -182,10 +190,27 @@ EOF;
 
     }
 
-
-
-    function sendReportsMail($arrTotal)
+    function sendReportsMail($mailto)
     {
+        $objMailView = new SC_SiteView_Ex();
+        $objSendMail = new SC_SendMail_Ex();
+
+        $arrInfo = SC_Helper_DB_Ex::sfGetBasisData();
+
+        $from_address = $arrInfo['email03'];
+        $from_name = $arrInfo['shop_name'];
+        $reply_to = $arrInfo['email03'];
+        $error = RETURN_PATH_EMAIL;
+        $to_subject = '[' . $this->today . '] 売上集計レポート';
+        $mail_template = DATA_REALDIR . $this->mail_template;
+        $objMailView->assignobj($this);
+        $body = $objMailView->fetch($mail_template);
+var_dump($body);
+        exit;
+        $objSendMail->setItem('', $to_subject, $body, $from_address, $from_name, $reply_to, $error, $error);
+        $objSendMail->setTo($mailto);
+        $objSendMail->sendMail();    // メール送信
+
         //メールでレポートを送る
         return 'sendmail';
     }
@@ -206,7 +231,7 @@ EOF;
         $arrRet = $objQuery->select($col, $table, $where, $arrWhereVal);
 
         // 指定範囲の売上の明細
-        return $arrRet;
+        return $arrRet[0]['sum'];
 
     }
 
