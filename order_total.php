@@ -23,19 +23,19 @@ if (defined('SAFE') && SAFE === true) {
 class Reports_OrderTotal {
 
     // 週の基準になる日
-    private $weeklyBaseDay = 1;
+    private $weeklyBaseDay = 6;
     // 月締めの基準となる頭
     private $monthlyHeadDay = 1;
     // 毎日メールの送信先
-    private $dailyMailTo = 'yangsin_kim@lockon.co.jp';
+    public $dailyMailTo = 'yangsin_kim@lockon.co.jp';
     // 週間メールの送信先
-    private $weeklyMailTo = 'yangsin_kim@lockon.co.jp';
+    public $weeklyMailTo = 'yangsin_kim@lockon.co.jp';
     // 月間メールの送信先
-    private $monthlyMailTo = 'yangsin_kim@lockon.co.jp';
+    public $monthlyMailTo = 'yangsin_kim@lockon.co.jp';
     // DateTimeオブジェクト
     private $objDate = '';
     // 曜日の配列
-    private $arrWeekDays = array(
+    public $arrWeekDays = array(
         0 => 'Sunday',
         1 => 'Monday',
         2 => 'Tuesday',
@@ -49,7 +49,7 @@ class Reports_OrderTotal {
     // 未入金の受注ステータス
     private $unPaid_status = '4';
     // 集計日
-    private $today = '';
+    public $today = '';
     // メールテンプレート
     private $mail_template = 'batch/reports/order_total.tpl';
 
@@ -69,7 +69,11 @@ class Reports_OrderTotal {
     function execute()
     {
 
-        $this->today = $this->objDate->format('Y-m-d');
+        // 与えられた日付
+        $today = $this->objDate->format('Y-m-d' );
+        // 集計日（この日までの売上を集計する）
+        $this->objCountDate = new DateTime($today . '-1day');
+        $this->countDate = $this->objCountDate->format('Y-m-d');
         $mailto = $this->dailyMailTo;
         //締め日なのか確認して月間の売上をだすか確認
         if ($this->objDate->format('j') == $this->monthlyHeadDay ) {
@@ -137,9 +141,22 @@ class Reports_OrderTotal {
     {
         $endDate = $this->objDate->format('Y-m-d');
         // 今週の初めを求める
-        $lastBaseDayStr = 'last ' . $this->arrWeekDays[$this->weeklyBaseDay];
-        $startDay = date('Y-m-d',strtotime($lastBaseDayStr));
-        $arrWeekTotal = $this->getOrderTotal($startDay, $endDate);
+        $weekday = $this->objDate->format('N');
+        $weekdayDiff = $weekday - $this->weeklyBaseDay;
+        if ( $weekdayDiff > 0) {
+            $objStartDate = new DateTime($endDate . '-' . $weekdayDiff . 'day' );
+        } else {
+            $lastWeekday = $weekdayDiff + 7;
+            $objStartDate = new DateTime($endDate . '-' . $lastWeekday . 'day' );
+        }
+        //締めの曜日を求める
+        if ($this->weeklyBaseDay > 0) {
+            $arrWeekTotal['cutDay'] = $this->weeklyBaseDay - 1;
+        } else {
+            $arrWeekTotal['cutDay'] = $this->weeklyBaseDay + 6;
+        }
+        $startDay = $objStartDate->format('Y-m-d');
+        $arrWeekTotal['total'] = $this->getOrderTotal($startDay, $endDate);
 
         return $arrWeekTotal;
     }
@@ -147,14 +164,30 @@ class Reports_OrderTotal {
     function calThisMonthTotal()
     {
         $endDate = $this->objDate->format('Y-m-d');
+        $objNextMonth = new DateTime( $endDate . '+1month');
+        $objLastMonth = new DateTime( $endDate . '-1month');
+
+        // 開始日と締め日を計算
         if ( $this->objDate->format('j') > $this->monthlyHeadDay ) {
+            // 集計日 ＞ 期初日
+            // 今月の期初日が開始日
             $startDate = $this->objDate->format('Y-m-' . str_pad($this->monthlyHeadDay, 2, '0', STR_PAD_LEFT));
+            //来月の期初日－1Dayが締め日
+            $nextHeadDate = $objNextMonth->format('Y-m-' . str_pad($this->monthlyHeadDay, 2, '0', STR_PAD_LEFT));
+            $objCutDate = new DateTime($nextHeadDate . '-1day');
+            $arrMonthTotal['cutDate'] = $objCutDate->format('Y/m/d');
+
         } else {
-            $objStartDate = new DateTime( $endDate . '-1month');
-            $startDate = $objStartDate->format('Y-m-' . str_pad($this->monthlyHeadDay, 2, '0', STR_PAD_LEFT));
+            // 集計日<=期初
+            // 先月の期初日が開始日
+            $startDate = $objLastMonth->format('Y-m-' . str_pad($this->monthlyHeadDay, 2, '0', STR_PAD_LEFT));
+            // 今月の期初日 -1が開始日
+            $nextHeadDate = $this->objDate->format('Y-m-' . str_pad($this->monthlyHeadDay, 2, '0', STR_PAD_LEFT));
+            $objCutDate = new DateTime($nextHeadDate . '-1day');
+            $arrMonthTotal['cutDate'] = $objCutDate->format('Y/m/d');
         }
 
-        $arrMonthTotal= $this->getOrderTotal($startDate, $endDate);
+        $arrMonthTotal['total'] = $this->getOrderTotal($startDate, $endDate);
 
         return $arrMonthTotal;
     }
